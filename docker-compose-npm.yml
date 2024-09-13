@@ -1,0 +1,302 @@
+networks:
+  default:
+    driver: bridge
+  npm_proxy:
+    name: npm_proxy
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.90.0/24
+
+x-environment: &default-tz-puid-pgid
+  TZ: $TZ
+  PUID: $PUID
+  PGID: $PGID
+
+x-common-keys-core: &common-keys-core
+  networks:
+    - npm_proxy
+  security_opt:
+    - no-new-privileges=true
+  restart: always
+
+x-common-keys-apps: &common-keys-apps
+  networks:
+    - npm_proxy
+  security_opt:
+    - no-new-privileges=true
+  restart: unless-stopped
+
+x-common-keys-media: &common-keys-media
+  networks:
+    - npm_proxy
+  security_opt:
+    - no-new-privileges=true
+  restart: "no"
+
+services:
+  npm:
+    <<: *common-keys-core
+    container_name: nginx-proxy-manager
+    image: "jc21/nginx-proxy-manager:latest"
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.90.254
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"
+    volumes:
+      - $DOCKERDIR/appdata/npm/config:/config
+      - $DOCKERDIR/appdata/npm/letsencrypt:/etc/letsencrypt
+      - $DOCKERDIR/appdata/npm/data:/data
+    environment:
+      DB_SQLITE_FILE: "/config/database.sqlite"
+      DISABLE_IPV6: "true"
+
+  portainer:
+    <<: *common-keys-core
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    networks:
+      - npm_proxy
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - $DOCKERDIR/appdata/portainer/data:/data
+    environment:
+      <<: *default-tz-puid-pgid
+
+  nzbget:
+    <<: *common-keys-apps
+    image: lscr.io/linuxserver/nzbget
+    container_name: nzbget
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.90.216
+    ports:
+      - "6789:6789"
+    volumes:
+      - $DOCKERDIR/appdata/nzbget:/config
+      - $USERDIR/Downloads/apps:/apps
+      - $USERDIR/Downloads/downloads:/downloads
+      - $USERDIR/Downloads/watch:/watch
+      - $USERDIR/Downloads/temp:/temp
+      - $USERDIR/Downloads/incomplete:/incomplete
+    environment:
+      <<: *default-tz-puid-pgid
+
+  # openbooks:
+  #   <<: *common-keys-apps
+  #   image: evanbuss/openbooks:latest
+  #   container_name: openbooks
+  #   networks:
+  #     npm_proxy:
+  #       ipv4_address: 192.168.90.165
+  #   ports:
+  #     - '6969:80'
+  #   volumes:
+  #     - $DOCKERDIR/appdata/openbooks:/config
+  #     - $DATADIR/Books:/books
+  #   command: --name willybookslave --persist
+
+  qbittorrent:
+    <<: *common-keys-apps
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.90.172
+    ports:
+      - "8080:8080"
+    volumes:
+      - $DOCKERDIR/appdata/qbittorrent:/config
+      - $USERDIR/Downloads/downloads:/downloads
+    environment:
+      <<: *default-tz-puid-pgid
+      UMASK_SET: 002
+
+  homarr:
+    container_name: homarr
+    image: ghcr.io/ajnart/homarr:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - $DOCKERDIR/appdata/homarr/configs:/app/data/configs
+      - $DOCKERDIR/appdata/homarr/icons:/app/public/iconsf
+      - $DOCKERDIR/appdata/homarr/data:/data
+    ports:
+      - "7575:7575"
+
+  prowlarr:
+    <<: *common-keys-apps
+    image: ghcr.io/linuxserver/prowlarr:develop
+    container_name: prowlarr
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.90.162
+    ports:
+      - "9696:9696"
+    volumes:
+      - $DOCKERDIR/appdata/prowlarr:/config
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      <<: *default-tz-puid-pgid
+
+  radarr:
+    <<: *common-keys-media
+    image: lscr.io/linuxserver/radarr:nightly # latest was causing "Error parsing column 45"
+    container_name: radarr
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.90.164
+    ports:
+      - "7878:7878"
+    volumes:
+      - $DOCKERDIR/appdata/radarr:/config
+      - $DATADIR/Movies:/Movies
+      - $USERDIR/Downloads/incomplete:/downloads
+      - $USERDIR/Downloads/trash:/data/deleted
+      - $USERDIR/Downloads/downloads/movies:/downloads/movies
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      <<: *default-tz-puid-pgid
+
+  sonarr:
+    <<: *common-keys-media
+    image: lscr.io/linuxserver/sonarr
+    container_name: sonarr
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.90.167
+    ports:
+      - "8989:8989"
+    volumes:
+      - $DOCKERDIR/appdata/sonarr:/config
+      - $DATADIR/TV Shows:/TV Shows
+      - $USERDIR/Downloads/incomplete:/downloads
+      - $USERDIR/Downloads/trash:/data/deleted
+      - $USERDIR/Downloads/downloads/tv:/downloads/tv
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      <<: *default-tz-puid-pgid
+
+  readarr:
+    <<: *common-keys-media
+    image: hotio/readarr:nightly
+    container_name: readarr
+    networks:
+      npm_proxy:
+        ipv4_address: 192.168.90.189
+    ports:
+      - "8987:8787"
+    volumes:
+      - $DOCKERDIR/appdata/readarr:/config
+      - $DATADIR/Books:/Books
+      - $USERDIR/Downloads/incomplete:/downloads
+      - $USERDIR/Downloads/trash:/data/deleted
+      - $USERDIR/Downloads/downloads/books:/downloads/books
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      <<: *default-tz-puid-pgid
+      UMASK: 002
+      ARGS: ""
+
+  overseerr:
+    <<: *common-keys-media
+    image: lscr.io/linuxserver/overseerr:latest
+    container_name: overseerr
+    ports:
+      - 5055:5055
+    volumes:
+      - $DOCKERDIR/appdata/overseerr:/config
+    environment:
+      <<: *default-tz-puid-pgid
+
+  # # Handbrake - Video Conversion (Transcoding and compression)
+  # handbrake:
+  #   <<: *common-keys-apps
+  #   image: jlesage/handbrake:latest
+  #   container_name: handbrake
+  #   ports:
+  #     - "5801:5800"
+  #   volumes:
+  #     - $USERDIR/Downloads:/data/downloads
+  #     - $DOCKERDIR/appdata/handbrake/config:/config
+  #     - $DOCKERDIR/appdata/handbrake/watch:/watch
+  #   environment:
+  #     USER_ID: $PUID
+  #     GROUP_ID: $PGID
+  #     UMASK: 002
+  #     TZ: $TZ
+  #     KEEP_APP_RUNNING: 1
+  #     CLEAN_TMP_DIR: 1
+  #     DISPLAY_WIDTH: 1600
+  #     DISPLAY_HEIGHT: 960
+  #     AUTOMATED_CONVERSION_KEEP_SOURCE: 1
+  #     VNC_PASSWORD: $HANDBRAKE_VNC_PASSWD
+
+  # Dozzle - Real-time Docker Log Viewer
+  dozzle:
+    <<: *common-keys-apps
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    networks:
+      - npm_proxy
+    ports:
+      - "9999:8080" # qBittorrent is using port 8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Use Docker Socket Proxy and comment this line for improved security.
+    environment:
+      DOZZLE_LEVEL: info
+      DOZZLE_TAILSIZE: 300
+      DOZZLE_FILTER: "status=running"
+
+  # # Docker-GC - Automatic Docker Garbage Collection
+  # # Create docker-gc-exclude file
+  # dockergc:
+  #   <<: *common-keys-apps
+  #   image: clockworksoul/docker-gc-cron:latest
+  #   container_name: docker-gc
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock # Use Docker Socket Proxy and comment this line for improved security.
+  #     - $DOCKERDIR/appdata/docker-gc/docker-gc-exclude:/etc/docker-gc-exclude # Create empty file
+  #   environment:
+  #     CRON: 0 0 0 * * ? # Everyday at midnight. Previously 0 0 * * *
+  #     FORCE_IMAGE_REMOVAL: 1
+  #     FORCE_CONTAINER_REMOVAL: 0
+  #     GRACE_PERIOD_SECONDS: 604800
+  #     DRY_RUN: 0
+  #     CLEAN_UP_VOLUMES: 1
+  #     TZ: $TZ
+  #     # DOCKER_HOST: tcp://socket-proxy:2375 # Use this if you have Socket Proxy enabled.
+
+  # WatchTower - Automatic Docker Container Updates
+  watchtower:
+    <<: *common-keys-core
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      <<: *default-tz-puid-pgid
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_REMOVE_VOLUMES: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "true"
+      WATCHTOWER_NO_STARTUP_MESSAGE: "false"
+      WATCHTOWER_SCHEDULE: "0 30 12 * * *" # Everyday at 12:30
+      DOCKER_API_VERSION: "1.40"
+
+  pwndrop:
+    <<: *common-keys-core
+    image: lscr.io/linuxserver/pwndrop:latest
+    container_name: webdav
+    environment:
+      <<: *default-tz-puid-pgid
+    ports:
+      - "1339:8080"
+    volumes:
+      - $DOCKERDIR/appdata/webdav:/config
+      - $DATADIR/Books:/Books
